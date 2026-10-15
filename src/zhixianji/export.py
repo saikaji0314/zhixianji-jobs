@@ -178,8 +178,18 @@ def write_summary(
     if extra:
         summary.update(extra)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return summary
+    # 详情阶段会再次导出同一个批次。此时保留上一阶段写入的额外信息（例如列表读取统计），
+    # 只刷新本次重算的计数，避免后一次导出把前一次的证据丢掉。
+    merged = summary
+    if path.is_file():
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            previous = None
+        if isinstance(previous, dict):
+            merged = {**previous, **summary}
+    path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return merged
 
 
 def export_all(store: Store, batch_id: str, output_dir: Path, extra: dict[str, Any] | None = None) -> dict[str, Any]:

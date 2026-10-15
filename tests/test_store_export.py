@@ -1,4 +1,4 @@
-﻿"""存储与导出测试：窗口标记、批次恢复、CSV 可回读、公式注入防护。"""
+"""存储与导出测试：窗口标记、批次恢复、CSV 可回读、公式注入防护。"""
 
 from __future__ import annotations
 
@@ -107,6 +107,22 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(row["batch_id"], self.batch_id)
         self.assertEqual(row["list_count"], 3)
         self.assertEqual(row["window_count"], 2)
+
+    def test_rerunning_the_list_phase_updates_conditions_without_crashing(self) -> None:
+        # 真实使用中会带着固定的 --as-of 重跑列表阶段；这必须是更新而不是报 UNIQUE 冲突。
+        original_created = self.store.get_batch(self.batch_id)["created_at"]
+        self.store.create_batch(
+            self.batch_id,
+            "https://other.invalid",
+            {"search": {"q": "x"}},
+            TimeWindow("published_at", 7, as_of=AS_OF).to_json(),
+        )
+
+        batch = self.store.get_batch(self.batch_id)
+        self.assertEqual(batch["base_url"], "https://other.invalid")
+        self.assertEqual(batch["created_at"], original_created, "批次创建时间不应被覆盖")
+        self.assertEqual(json.loads(batch["window_json"])["days"], 7)
+        self.assertEqual(len(self.store.list_batches()), 1, "重跑不应产生第二个批次")
 
 
 class ExportTest(unittest.TestCase):

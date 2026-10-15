@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,7 @@ from .discover import DiscoverError, discover
 from .export import export_all, write_summary
 from .http_client import FetchError, HttpClient
 from .store import Store
-from .window import CN_TZ, TimeWindow, parse_site_time
+from .window import TimeWindow, parse_site_time
 
 DEFAULT_DB = "data/zhixianji.db"
 DEFAULT_OUTPUT = "output"
@@ -92,6 +91,8 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
     with Store(db_path) as store:
         batch_id = args.batch or store.next_batch_id(cfg.search.get("q", "batch"))
+        # 交给 cmd_run 使用，避免依赖「最近一个批次」这种在秒级时间戳下不牢靠的推断。
+        args.discovered_batch_id = batch_id
         if store.get_batch(batch_id) is not None and args.batch:
             _eprint(f"批次 {batch_id} 已存在；列表结果会按主键覆盖，详情不受影响。")
         store.create_batch(batch_id, cfg.base_url, cfg.to_json(), window.to_json(), notes=args.notes or "")
@@ -214,15 +215,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     code = cmd_discover(args)
     if code != 0:
         return code
-    batch_id = args.batch
+    batch_id = getattr(args, "discovered_batch_id", None) or args.batch
     if batch_id is None:
-        # discover 自动生成了批次号；从数据库取最近一条。
-        with Store(Path(args.db)) as store:
-            batches = store.list_batches()
-            if not batches:
-                _eprint("没有可用批次")
-                return 2
-            batch_id = batches[0]["batch_id"]
+        _eprint("列表阶段没有返回批次号")
+        return 2
     if args.skip_details:
         return 0
     detail_args = argparse.Namespace(**vars(args))

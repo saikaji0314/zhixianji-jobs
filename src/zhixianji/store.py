@@ -153,9 +153,15 @@ class Store:
         window_json: dict[str, Any],
         notes: str = "",
     ) -> None:
+        """登记批次。同一批次重复执行列表阶段时更新条件，但保留最初的创建时间。"""
         self.conn.execute(
             "INSERT INTO batches (batch_id, created_at, base_url, config_json, window_json, notes)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(batch_id) DO UPDATE SET"
+            "   base_url = excluded.base_url,"
+            "   config_json = excluded.config_json,"
+            "   window_json = excluded.window_json,"
+            "   notes = excluded.notes",
             (
                 batch_id,
                 now_iso(),
