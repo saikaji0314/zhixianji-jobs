@@ -42,7 +42,7 @@ CSV／JSONL／可读 Markdown 导出，以及 82 项离线测试。
 
 ## 安装与运行
 
-只需要 Python 3.11+，无第三方依赖。
+当前实现只用 Python 标准库，需要 Python 3.11+，无需安装任何第三方包。
 
 ```powershell
 Copy-Item config/search.example.json config/search.local.json
@@ -112,7 +112,7 @@ python run.py run      --config config/search.local.json
 身份核对以详情页的 `data-job-source` 与 `data-source-job-id` 为准。核对不通过时不写正文，
 只记录失败状态——宁可缺一条，也不把别的岗位内容写成这个岗位的 JD。
 
-## 测试
+## 测试与核对
 
 ```powershell
 python -m unittest discover -s tests -t .
@@ -120,6 +120,16 @@ python -m unittest discover -s tests -t .
 
 测试全部离线，不访问站点。样例数据为虚构内容，结构按真实页面观察构造。
 测试临时目录使用 `data/_test-tmp`，原因见 `tests/__init__.py` 中的说明。
+
+对一个已完成批次做独立核对（默认离线，只读数据库与归档 HTML）：
+
+```powershell
+python tools/spot_check.py --batch 20261015-1910-agent
+python tools/spot_check.py --batch 20261015-1910-agent --live --sample 5
+```
+
+它复核入库正文能否在归档页面里溯源、完整 JD 是否确实长于列表摘要，并在 `--live` 时
+抽样重新访问站点逐字比对。
 
 ## 文档
 
