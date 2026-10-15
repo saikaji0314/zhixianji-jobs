@@ -1,0 +1,23 @@
+# 本地运行产物，不纳入版本控制
+data/
+output/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 本地个人配置：由 config/search.example.json 复制而来
+config/search.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zhixianji-jobs"
+description = "按搜索条件采集职先机（jobs.ultraai.site）收录时间在窗口内的完整 JD，本地保存并导出"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "UNLICENSED" }
+dynamic = ["version"]
+dependencies = []
+
+[project.scripts]
+zhixianji-jobs = "zhixianji.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "zhixianji.__version__" }

@@ -1,0 +1,26 @@
+{
+  "$comment": "复制为 config/search.local.json 后按需修改。search 下的参数与站点 /discover 页面的查询串一一对应。",
+  "baseUrl": "https://jobs.ultraai.site",
+
+  "search": {
+    "q": "agent",
+    "job_type": "social",
+    "status": "active"
+  },
+
+  "window": {
+    "field": "first_seen_at",
+    "days": 30,
+    "asOf": null
+  },
+
+  "collection": {
+    "maxPages": 200,
+    "maxJobs": 6000,
+    "timeoutMs": 20000,
+    "maxRetries": 3,
+    "listDelayMs": 400,
+    "detailDelayMs": 700,
+    "userAgent": "zhixianji-jobs/0.1 (personal job research; read-only)"
+  }
+}
