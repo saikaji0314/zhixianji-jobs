@@ -1,4 +1,4 @@
-# 站点契约（实测记录）
+﻿# 站点契约（实测记录）
 
 观察日期：**2026-10-15**。观察方式：直接请求站点，未使用浏览器。
 站点页面结构或接口一旦变化，本文件与解析代码都需要重新核对。
@@ -67,7 +67,7 @@ GET /api/jobs?job_type=social&status=active&q=agent&page=1
 | `is_active` | `true` | 是否在招 |
 | `published_at` | `2026-10-15` | 官网发布时间或收录时间，可为空 |
 | `published_at_source` | `official` / `first_seen` | 上者的来源 |
-| `query_score` | `110` | 站点关键词打分 |
+| `query_score` | `110` | 命中位置打分，见下节 |
 | `has_description` | `true` | 站点是否已抓到正文 |
 | `description_excerpt` | `…` | **摘要**，不是完整正文 |
 | `public_path` | `/jobs/baidu/9e66747d-…` | 站点详情页路径 |
@@ -75,7 +75,50 @@ GET /api/jobs?job_type=social&status=active&q=agent&page=1
 | `source_label` | `百度招聘` | 来源中文名 |
 | `viewed` / `favorited` | `false` | 与登录账号相关的个人状态 |
 
-## 3. 详情页
+## 3. `q` 的匹配范围：标题**或**岗位详情
+
+这一条最容易误解，单独说明。
+
+搜索页自己写明「**标题命中优先，其次匹配岗位详情**」。也就是说 `q` 不是标题过滤，
+而是「标题命中 ∪ 岗位详情命中」的并集，站点把两者排在同一个结果列表里，标题命中排在前面。
+
+`query_score` 就是这个位置的机器可读标记。实测（2026-10-15，`q=agent`，
+`job_type=social`、`status=active`，共 4779 条）**只有三档**：
+
+| `query_score` | 条数 | 标题是否含 `agent` |
+| --- | --- | --- |
+| `110` | 964 | 是 |
+| `100` | 37 | 是 |
+| `10` | 3778 | 否，只靠岗位详情命中 |
+
+两个方向都验证过，没有例外：
+
+- 标题含 `agent` 的 1001 条 = 964 + 37，`query_score` 只取 110 与 100；
+- 标题不含的 3778 条，`query_score` 全部是 10。
+
+因此 **`query_score >= 100` 等价于「标题命中关键词」**（110 与 100 的区别未查明，
+推测与关键词在标题中的位置有关）。这个阈值属于站点实现细节，可能变化；
+`src/zhixianji/export.py` 里的 `TITLE_HIT_MIN_SCORE` 集中定义了它，并有对应的测试。
+
+**实际影响（收录时间窗口内）**：
+
+| 口径 | 条数 |
+| --- | --- |
+| 站点搜索返回的全部结果 | 635 |
+| 其中标题命中 `agent` | **104** |
+| 其中仅靠岗位详情命中 | 531 |
+
+只在详情里命中的 531 条，绝大多数确实在正文里出现了 `agent`（529/531），
+但很多只是要求里顺带一句「有 Agent 设计和实现经验者优先」——
+例如 `xiaomi/7696728516373793066`「Java研发专家」，标题与 Agent 无关，
+命中来自其要求第 7 条。这类岗位对「找 Agent 岗」的分析是噪声，
+所以导出时会把两种口径分开成 `jobs.csv` 与 `jobs-title-hit.csv`。
+
+**注意**：站点的搜索 UI 并不使用 `query_score`（源码里只把它透传），
+也不做任何筛选，页面计数显示的是完整 `total`（4,780），
+所以只浏览前几页会看到清一色的标题命中结果，容易误判结果集很小。
+
+## 4. 详情页
 
 ```
 GET /jobs/<source>/<source_job_id>
@@ -83,7 +126,7 @@ GET /jobs/<source>/<source_job_id>
 
 服务端渲染的 HTML（约 12–32 KB），无需 JavaScript 即可取得完整 JD。
 
-### 3.1 岗位身份（用于核对）
+### 4.1 岗位身份（用于核对）
 
 ```html
 <section class="opportunity-hero job-hero"
@@ -97,7 +140,7 @@ GET /jobs/<source>/<source_job_id>
 `data-job-source` + `data-source-job-id` 是入库前的身份判据。
 注意站点上可能存在同名不同 ID 的岗位，标题一致不足以证明身份，必须比对 ID。
 
-### 3.2 收录时间
+### 4.2 收录时间
 
 ```html
 <p class="job-collected"><span>收录时间</span><time datetime="2026-10-15T18:06:10+08:00">2026-10-15 18:06</time></p>
@@ -106,7 +149,7 @@ GET /jobs/<source>/<source_job_id>
 `datetime` 与列表接口的 `first_seen_at` 逐条一致（抽查 8 个不同来源均吻合）。
 这就是本工具默认的窗口字段。
 
-### 3.3 结构化正文（首选）
+### 4.3 结构化正文（首选）
 
 页面含 `application/ld+json`，其中 `@graph` 里有 `JobPosting`：
 
@@ -130,7 +173,7 @@ GET /jobs/<source>/<source_job_id>
 **注意：`JobPosting` 并非每个岗位都有。** 实测美团来源的详情页没有 `ld+json`，
 因此必须保留正文区块的回退路径。
 
-### 3.4 正文区块（回退）
+### 4.4 正文区块（回退）
 
 ```html
 <section class="dossier-section" id="job-responsibilities">
@@ -146,13 +189,13 @@ GET /jobs/<source>/<source_job_id>
 - 页面还有 `section.recommendations`（相似岗位）、`section.opportunity-thesis`、
   `section.job-mini-program` 等区块，这些不属于 JD，解析时排除。
 
-### 3.5 其它
+### 4.5 其它
 
 - 详情页返回 404 表示岗位不存在或已下线。
 - 页面上的「相似岗位」链接是 `/jobs/<source>/<id>`，可作为发现更多岗位的入口，本工具未使用。
 - 站点为 Cloudflare 前置；请求带普通浏览器 User-Agent，串行请求、间隔数百毫秒，未遇到限流。
 
-## 4. 未验证的部分
+## 5. 未验证的部分
 
 以下内容本工具没有依赖，也未验证，做扩展前需要重新实测：
 
@@ -162,7 +205,7 @@ GET /jobs/<source>/<source_job_id>
 - `/jobs/archive` 下线岗位档案页的结构；
 - 站点是否有速率限制，以及长期高频请求的后果。
 
-## 5. 复核方法
+## 6. 复核方法
 
 ```powershell
 # 列表字段与分页

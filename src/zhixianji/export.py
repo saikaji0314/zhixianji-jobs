@@ -15,7 +15,8 @@ from .store import Store
 
 CSV_COLUMNS = [
     "source", "source_job_id", "title", "organization", "location", "category",
-    "job_type", "first_seen_at", "published_at", "published_at_source",
+    "job_type", "query_score", "match_scope",
+    "first_seen_at", "published_at", "published_at_source",
     "updated_at", "posted_at", "is_active", "source_label", "public_path",
     "detail_url", "jd_status", "jd_parse_source", "jd_title_matches", "jd_chars",
     "responsibilities", "qualifications", "detail_date_posted",
@@ -36,10 +37,31 @@ def safe_filename(source: str, source_job_id: str) -> str:
     return re.sub(r"[^0-9A-Za-z._-]", "_", f"{source}__{source_job_id}")[:150]
 
 
-def build_rows(store: Store, batch_id: str) -> list[dict[str, Any]]:
+# 站点用 query_score 表示命中位置，实测（2026-10-15，q=agent）只有三档：
+#   110 / 100 -> 标题命中关键词（110 与 100 的区别未查明）
+#   10        -> 标题不含关键词，靠「岗位详情」命中
+# 站点搜索页自己也写明「标题命中优先，其次匹配岗位详情」。
+# 因此 >= TITLE_HIT_MIN_SCORE 等价于「标题命中」，该值随站点实现可能变化。
+TITLE_HIT_MIN_SCORE = 100
+
+
+def is_title_hit(item: dict[str, Any]) -> bool:
+    """该岗位是否属于「标题命中关键词」那一档。"""
+    score = item.get("query_score")
+    if score is None:
+        return False
+    try:
+        return int(score) >= TITLE_HIT_MIN_SCORE
+    except (TypeError, ValueError):
+        return False
+
+
+def build_rows(store: Store, batch_id: str, title_only: bool = False) -> list[dict[str, Any]]:
     details = store.get_details(batch_id)
     rows: list[dict[str, Any]] = []
     for item in store.get_list_items(batch_id, in_window_only=True):
+        if title_only and not is_title_hit(item):
+            continue
         key = (item["source"], item["source_job_id"])
         detail = details.get(key, {})
         rows.append(
@@ -51,6 +73,8 @@ def build_rows(store: Store, batch_id: str) -> list[dict[str, Any]]:
                 "location": item["location"],
                 "category": item["category"],
                 "job_type": item["job_type"],
+                "query_score": item["query_score"],
+                "match_scope": "title" if is_title_hit(item) else "description",
                 "first_seen_at": item["first_seen_at"],
                 "published_at": item["published_at"],
                 "published_at_source": item["published_at_source"],
@@ -148,6 +172,12 @@ def write_summary(
         key = record.get("parse_source") or "none"
         parse_sources[key] = parse_sources.get(key, 0) + 1
 
+    # 命中位置分布：站点把「标题命中」和「只在岗位详情里命中」放在同一个结果集里，
+    # 分析前需要区分，否则会把「有 Agent 经验者优先」的无关岗位当成 Agent 岗位。
+    match_scope = {"title": 0, "description": 0}
+    for item in store.get_list_items(batch_id, in_window_only=True):
+        match_scope["title" if is_title_hit(item) else "description"] += 1
+
     summary: dict[str, Any] = {
         "batchId": batch_id,
         "createdAt": batch.get("created_at"),
@@ -158,6 +188,8 @@ def write_summary(
             "listItemsStored": store.window_counts(batch_id)["in_window"]
             + store.window_counts(batch_id)["out_of_window"],
             "inWindow": store.window_counts(batch_id)["in_window"],
+            "inWindowTitleHit": match_scope["title"],
+            "inWindowDescriptionOnly": match_scope["description"],
             "outOfWindow": store.window_counts(batch_id)["out_of_window"],
             "detailsFetched": len(details),
             "jdOk": sum(1 for row in rows if row["jd_status"] == "ok"),
@@ -167,6 +199,11 @@ def write_summary(
         "detailStatus": store.detail_status_counts(batch_id),
         "detailParseSource": parse_sources,
         "sourcesInWindow": store.source_counts(batch_id, in_window_only=True),
+        "matchScope": {
+            "note": "站点按「标题命中优先，其次匹配岗位详情」返回结果；query_score>=100 为标题命中",
+            "titleHitMinScore": TITLE_HIT_MIN_SCORE,
+            "inWindow": match_scope,
+        },
         "outputs": {
             "csv": "jobs.csv",
             "jsonl": "jobs.jsonl",
@@ -192,11 +229,41 @@ def write_summary(
     return merged
 
 
-def export_all(store: Store, batch_id: str, output_dir: Path, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def export_all(
+    store: Store,
+    batch_id: str,
+    output_dir: Path,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """导出整个窗口，并同时给出「标题命中」子集。
+
+    站点的 `q` 同时匹配标题和岗位详情，两者混在一个结果集里。分析前必须能分开，
+    否则「有 Agent 经验者优先」这类只在要求里顺带提一句的岗位会被当成 Agent 岗位。
+    所以这里总是把两种口径都落盘，而不是加一个开关——开关会带来「上次导出带了、
+    这次没带」的状态问题。
+    """
     rows = build_rows(store, batch_id)
     write_csv(rows, output_dir / "jobs.csv")
     write_jsonl(rows, output_dir / "jobs.jsonl")
     md_count = write_markdown(rows, output_dir / "jd")
+
+    title_rows = [row for row in rows if row["match_scope"] == "title"]
+    write_csv(title_rows, output_dir / "jobs-title-hit.csv")
+    write_jsonl(title_rows, output_dir / "jobs-title-hit.jsonl")
+    title_md = write_markdown(title_rows, output_dir / "jd-title-hit")
+
     summary = write_summary(store, batch_id, output_dir / "summary.json", extra)
-    summary["outputs"]["markdownFiles"] = md_count
+    summary.setdefault("counts", {})["titleHitRows"] = len(title_rows)
+    summary.setdefault("outputs", {}).update(
+        {
+            "markdownFiles": md_count,
+            "titleHitCsv": "jobs-title-hit.csv",
+            "titleHitJsonl": "jobs-title-hit.jsonl",
+            "titleHitMarkdownDir": "jd-title-hit/",
+            "titleHitMarkdownFiles": title_md,
+        }
+    )
+    (output_dir / "summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     return summary

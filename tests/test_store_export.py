@@ -51,12 +51,12 @@ class StoreTest(unittest.TestCase):
         self.store.close()
         self._tmp_ctx.__exit__(None, None, None)
 
-    def test_window_marking_splits_the_three_fixture_rows(self) -> None:
-        self.assertEqual(self.store.window_counts(self.batch_id), {"in_window": 2, "out_of_window": 1})
+    def test_window_marking_splits_the_fixture_rows(self) -> None:
+        self.assertEqual(self.store.window_counts(self.batch_id), {"in_window": 3, "out_of_window": 1})
 
     def test_list_items_ordered_by_collected_time_desc(self) -> None:
         items = self.store.get_list_items(self.batch_id)
-        self.assertEqual([i["source_job_id"] for i in items], ["EX-0001", "EX-0002"])
+        self.assertEqual([i["source_job_id"] for i in items], ["EX-0001", "EX-0004", "EX-0002"])
 
     def test_out_of_window_row_keeps_its_reason(self) -> None:
         all_items = self.store.get_list_items(self.batch_id, in_window_only=False)
@@ -65,7 +65,7 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(old["first_seen_at"], "2026-08-03T18:04:35+08:00")
 
     def test_pending_details_starts_with_all_in_window_rows(self) -> None:
-        self.assertEqual(len(self.store.pending_details(self.batch_id)), 2)
+        self.assertEqual(len(self.store.pending_details(self.batch_id)), 3)
 
     def test_successful_detail_is_not_pending_again(self) -> None:
         self.store.save_detail(
@@ -81,16 +81,16 @@ class StoreTest(unittest.TestCase):
             },
         )
         pending = self.store.pending_details(self.batch_id)
-        self.assertEqual([p["source_job_id"] for p in pending], ["EX-0002"])
+        self.assertEqual([p["source_job_id"] for p in pending], ["EX-0004", "EX-0002"])
 
     def test_failed_detail_is_retried_only_when_asked(self) -> None:
         self.store.save_detail(
             self.batch_id,
             {"source": "example", "source_job_id": "EX-0001", "status": "mismatch", "error": "身份不符"},
         )
-        self.assertEqual([p["source_job_id"] for p in self.store.pending_details(self.batch_id)], ["EX-0002"])
+        self.assertEqual([p["source_job_id"] for p in self.store.pending_details(self.batch_id)], ["EX-0004", "EX-0002"])
         retried = self.store.pending_details(self.batch_id, retry_failed=True)
-        self.assertEqual(sorted(p["source_job_id"] for p in retried), ["EX-0001", "EX-0002"])
+        self.assertEqual(sorted(p["source_job_id"] for p in retried), ["EX-0001", "EX-0002", "EX-0004"])
 
     def test_detail_status_counts(self) -> None:
         self.store.save_detail(self.batch_id, {"source": "example", "source_job_id": "EX-0001", "status": "ok"})
@@ -105,8 +105,8 @@ class StoreTest(unittest.TestCase):
     def test_batch_listing_reports_counts(self) -> None:
         row = self.store.list_batches()[0]
         self.assertEqual(row["batch_id"], self.batch_id)
-        self.assertEqual(row["list_count"], 3)
-        self.assertEqual(row["window_count"], 2)
+        self.assertEqual(row["list_count"], 4)
+        self.assertEqual(row["window_count"], 3)
 
     def test_rerunning_the_list_phase_updates_conditions_without_crashing(self) -> None:
         # 真实使用中会带着固定的 --as-of 重跑列表阶段；这必须是更新而不是报 UNIQUE 冲突。
@@ -164,7 +164,7 @@ class ExportTest(unittest.TestCase):
         self.assertTrue(raw.startswith(b"\xef\xbb\xbf"))
         with (self.out / "jobs.csv").open(encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle))
-        self.assertEqual(len(rows), 2)  # 只导出窗口内记录
+        self.assertEqual(len(rows), 3)  # 只导出窗口内记录
         first = [r for r in rows if r["source_job_id"] == "EX-0001"][0]
         self.assertIn("带,逗号与\"引号\"", first["responsibilities"])
         self.assertEqual(first["jd_status"], "ok")
@@ -177,7 +177,7 @@ class ExportTest(unittest.TestCase):
 
     def test_jsonl_round_trip(self) -> None:
         lines = (self.out / "jobs.jsonl").read_text(encoding="utf-8").strip().split("\n")
-        self.assertEqual(len(lines), 2)
+        self.assertEqual(len(lines), 3)
         records = [json.loads(line) for line in lines]
         self.assertEqual(records[0]["first_seen_at"], "2026-10-12T09:30:00+08:00")
 
@@ -191,14 +191,36 @@ class ExportTest(unittest.TestCase):
 
     def test_summary_counts_and_window_bounds(self) -> None:
         summary = json.loads((self.out / "summary.json").read_text(encoding="utf-8"))
-        self.assertEqual(summary["counts"]["inWindow"], 2)
+        self.assertEqual(summary["counts"]["inWindow"], 3)
         self.assertEqual(summary["counts"]["outOfWindow"], 1)
         self.assertEqual(summary["counts"]["jdOk"], 1)
         self.assertEqual(summary["detailStatus"], {"ok": 1})
         self.assertEqual(summary["detailParseSource"], {"json-ld": 1})
         self.assertEqual(summary["outOfWindowReasons"], {"before_window": 1})
         self.assertEqual(summary["window"]["startInclusive"], "2026-09-15T19:00:00+08:00")
-        self.assertEqual(summary["sourcesInWindow"], {"example": 1, "example2": 1})
+        self.assertEqual(summary["sourcesInWindow"], {"example": 1, "example2": 1, "example4": 1})
+
+    def test_match_scope_splits_title_hits_from_description_only(self) -> None:
+        summary = json.loads((self.out / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["counts"]["inWindowTitleHit"], 2)  # EX-0001、EX-0002
+        self.assertEqual(summary["counts"]["inWindowDescriptionOnly"], 1)  # EX-0004
+        self.assertEqual(summary["matchScope"]["titleHitMinScore"], 100)
+
+        with (self.out / "jobs-title-hit.csv").open(encoding="utf-8-sig", newline="") as handle:
+            title_rows = list(csv.DictReader(handle))
+        self.assertEqual(sorted(r["source_job_id"] for r in title_rows), ["EX-0001", "EX-0002"])
+        self.assertEqual({r["match_scope"] for r in title_rows}, {"title"})
+
+        with (self.out / "jobs.csv").open(encoding="utf-8-sig", newline="") as handle:
+            all_rows = list(csv.DictReader(handle))
+        scopes = {r["source_job_id"]: r["match_scope"] for r in all_rows}
+        self.assertEqual(scopes["EX-0004"], "description")
+
+    def test_title_hit_markdown_only_covers_title_rows(self) -> None:
+        files = sorted(p.name for p in (self.out / "jd-title-hit").glob("*.md"))
+        self.assertEqual(files, ["example__EX-0001.md"])
+        self.assertEqual(self.summary["outputs"]["titleHitMarkdownFiles"], 1)
+        self.assertEqual(self.summary["counts"]["titleHitRows"], 2)
 
     def test_markdown_count_reported_in_summary(self) -> None:
         self.assertEqual(self.summary["outputs"]["markdownFiles"], 1)

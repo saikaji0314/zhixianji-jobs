@@ -31,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from zhixianji.export import TITLE_HIT_MIN_SCORE, is_title_hit  # noqa: E402
 from zhixianji.htmlparse import parse_detail  # noqa: E402
 from zhixianji.http_client import HttpClient  # noqa: E402
 
@@ -120,8 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     print("窗口:", json.dumps(json.loads(batch["window_json"]), ensure_ascii=False))
     print("=" * 78)
 
-    rows = list(
-        conn.execute(
+    rows = [
+        dict(r)
+        for r in conn.execute(
             "SELECT l.*, d.status AS jd_status, d.responsibilities, d.qualifications, d.jd_chars,"
             " d.raw_path, d.parse_source, d.title_matches"
             " FROM list_items l LEFT JOIN details d"
@@ -130,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             " ORDER BY l.source, l.source_job_id",
             (batch_id,),
         )
-    )
+    ]
     ok_rows = [r for r in rows if r["jd_status"] == "ok"]
 
     # ---------------- A. 计数 ----------------
@@ -161,6 +163,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  JD 字数 中位/p10/p90: {chars[n//2]} / {chars[n//10]} / {chars[int(n*0.9)]}")
         print(f"  JD 字数 <100 条数 : {sum(1 for c in chars if c < 100)}")
     print(f"  标题一致性取值    : {sorted({r['title_matches'] for r in ok_rows}, key=lambda x: (x is None, x))}")
+
+    # 命中位置：站点把「标题命中」和「只在岗位详情里命中」混在一个结果集里
+    title_hit = [r for r in rows if is_title_hit(r)]
+    desc_only = [r for r in rows if not is_title_hit(r)]
+    print("  命中位置          : " + json.dumps(
+        {
+            "titleHit": len(title_hit),
+            "descriptionOnly": len(desc_only),
+            "titleHitMinScore": TITLE_HIT_MIN_SCORE,
+        },
+        ensure_ascii=False,
+    ))
+    if title_hit and desc_only:
+        print("  标题命中的 query_score 取值 : " + str(sorted({r["query_score"] for r in title_hit})))
+        print("  仅详情命中的 query_score 取值: " + str(sorted({r["query_score"] for r in desc_only})))
 
     # ---------------- B. 反伪造 ----------------
     print("\n[B] 反伪造：入库正文必须能在该岗位归档页面里找到")
