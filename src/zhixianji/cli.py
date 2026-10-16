@@ -28,6 +28,17 @@ def _eprint(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+def _positive_int(text: str) -> int:
+    """argparse 类型：只接受正整数；0、负数与非整数在解析阶段即被拒绝。"""
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"必须是正整数，收到 {text!r}")
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"必须是正整数（>=1），收到 {value}")
+    return value
+
+
 def _build_window(cfg: Config, as_of: str | None) -> TimeWindow:
     pinned = None
     value = as_of or cfg.window.as_of
@@ -240,7 +251,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def cmd_batches(args: argparse.Namespace) -> int:
     with Store(Path(args.db)) as store:
-        batches = store.list_batches()
+        batches = store.list_batches(limit=args.limit)
     if not batches:
         print("还没有批次。先运行：python run.py discover --config config/search.local.json")
         return 0
@@ -300,6 +311,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.set_defaults(func=cmd_export)
 
     p_batches = sub.add_parser("batches", help="列出本地批次")
+    p_batches.add_argument(
+        "--limit",
+        type=_positive_int,
+        default=None,
+        help="只显示最近 N 个批次（正整数）；省略则列出全部",
+    )
     p_batches.set_defaults(func=cmd_batches)
 
     return parser

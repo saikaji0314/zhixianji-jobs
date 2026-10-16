@@ -8,7 +8,7 @@
 ## 当前状态
 
 0.1.0 首版已实现：列表读取与收录时间窗口判定、完整 JD 抓取、SQLite 存储、
-CSV／JSONL／可读 Markdown 导出，以及 82 项离线测试。
+CSV／JSONL／可读 Markdown 导出，以及 104 项离线测试。
 真实站点的采集范围、成功率、覆盖来源与人工抽查结论见 [验证记录](docs/validation.md)。
 
 ## 为什么不需要浏览器
@@ -97,9 +97,19 @@ python run.py run      --config config/search.local.json
 | `details --batch <ID>` | 为窗口内岗位抓取完整 JD；`--limit N` 小批验证，`--retry-failed` 重试失败项 |
 | `run` | 列表 + 详情 + 导出 |
 | `export --batch <ID>` | 从本地数据库重新导出，不再访问站点 |
-| `batches` | 列出本地批次及计数 |
+| `batches` | 列出本地批次及计数；`--limit N` 只看最近 N 个（正整数，省略则列出全部） |
 
 中断后继续：再跑一次 `details --batch <ID>` 即可，已成功的正文不会重复访问。
+
+只看最近几个批次：
+
+```powershell
+python run.py batches --limit 5
+```
+
+`--limit N` 只返回最近 N 个批次（按创建时间倒序），省略时保留列出全部批次的行为。
+`N` 必须是正整数：0、负数或非整数会被 CLI 直接拒绝，且不会创建数据库或输出目录。
+该命令只读本地 SQLite，不访问采集站点。
 
 ## 配置
 

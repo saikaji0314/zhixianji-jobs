@@ -177,16 +177,20 @@ class Store:
         row = self.conn.execute("SELECT * FROM batches WHERE batch_id = ?", (batch_id,)).fetchone()
         return dict(row) if row else None
 
-    def list_batches(self) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """
+    def list_batches(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """按创建时间倒序列出批次；``limit`` 为正整数时只取最近 N 个。"""
+        sql = """
             SELECT b.*,
                    (SELECT COUNT(*) FROM list_items l WHERE l.batch_id = b.batch_id) AS list_count,
                    (SELECT COUNT(*) FROM list_items l WHERE l.batch_id = b.batch_id AND l.in_window = 1) AS window_count,
                    (SELECT COUNT(*) FROM details d WHERE d.batch_id = b.batch_id AND d.status = 'ok') AS ok_count
             FROM batches b ORDER BY b.created_at DESC
-            """
-        ).fetchall()
+        """
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (limit,)
+        rows = self.conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
     # -------------------------------------------------------------- list items
