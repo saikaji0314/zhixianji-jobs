@@ -3,6 +3,31 @@
 本文件记录真实站点的实测结果，以及**哪些结论有证据、哪些还没有**。
 模拟测试通过不等于站点可用，未验证的部分单独列出。
 
+## 2026-10-28：`batches --json` 离线验证
+
+### 环境与范围
+
+| 项 | 值 |
+| --- | --- |
+| 运行方式 | `python -m unittest discover -s tests -t .` |
+| 数据库 | 仓库 `data/_test-tmp` 下的新建临时 SQLite |
+| 站点访问 | **无**：未访问 `jobs.ultraai.site` 或任何岗位站点 |
+| 数据影响 | 只读本地库；未写入或删除既有 `batches`、`list_items`、`details` 行，未改 schema |
+
+### 结果
+
+| 检查项 | 结果 |
+| --- | --- |
+| 空库 `batches --json` | stdout 恰为 `[]` 加一个换行，退出码 0，无表头或提示 |
+| 有批次时输出 | 单个 JSON 数组；每项键恰为 `batch_id`、`created_at`、`list_count`、`window_count`、`ok_count`、`search` |
+| 计数与中文 | 三个计数经 `json.loads` 后为数值；含中文的 `search` 原样写出并可还原 |
+| 缺失 `search` | 输出空对象 `{}` |
+| 排序 | 按 `created_at` 降序，与 `Store.list_batches()` 一致 |
+| 默认文本与帮助 | 表头、空库提示和退出码不变；`batches --help` 列出 `--json` |
+| 离线测试 | `Ran 100 tests`，`OK` |
+
+本次只验证离线输出契约；`batches --json` 不访问站点，因此没有新增真实站点采集结论。
+
 ## 2026-10-15：首次真实采集（搜索条件 social + active + q=agent）
 
 ### 环境与条件
@@ -165,9 +190,10 @@ python -m unittest discover -s tests -t .
 python tools/spot_check.py --batch 20261015-1910-agent
 ```
 
-86 项测试，全部离线、不访问站点，样例数据为虚构内容。
+100 项测试，全部离线、不访问站点，样例数据为虚构内容。
 
 覆盖的关键行为：窗口边界（含正好等于下界、早一秒、缺失时间、晚于 `asOf`）、时区解析、
 列表翻页与去重、预算上限提示、列表 `total` 变动提示、详情身份核对不通过时清空正文、
 缺一侧正文记为 `incomplete`、恢复与 `--retry-failed`、CSV 多行字段回读与公式注入防护、
-摘要合并、批次重跑、以及测试环境自身的临时目录约束。
+摘要合并、批次重跑、`batches --json` 输出契约（空库、六字段、数值计数、中文 `search`、
+创建时间降序、默认文本与帮助），以及测试环境自身的临时目录约束。

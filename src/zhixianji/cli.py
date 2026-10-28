@@ -241,6 +241,22 @@ def cmd_export(args: argparse.Namespace) -> int:
 def cmd_batches(args: argparse.Namespace) -> int:
     with Store(Path(args.db)) as store:
         batches = store.list_batches()
+    if getattr(args, "as_json", False):
+        payload = []
+        for batch in batches:
+            search = json.loads(batch["config_json"] or "{}").get("search") or {}
+            payload.append(
+                {
+                    "batch_id": batch["batch_id"],
+                    "created_at": batch["created_at"],
+                    "list_count": int(batch["list_count"]),
+                    "window_count": int(batch["window_count"]),
+                    "ok_count": int(batch["ok_count"]),
+                    "search": search,
+                }
+            )
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0
     if not batches:
         print("还没有批次。先运行：python run.py discover --config config/search.local.json")
         return 0
@@ -300,6 +316,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.set_defaults(func=cmd_export)
 
     p_batches = sub.add_parser("batches", help="列出本地批次")
+    p_batches.add_argument(
+        "--json",
+        dest="as_json",
+        action="store_true",
+        help="以 JSON 数组输出，便于脚本读取（只读本地数据库，不访问站点）",
+    )
     p_batches.set_defaults(func=cmd_batches)
 
     return parser
