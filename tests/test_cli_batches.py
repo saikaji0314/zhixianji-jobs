@@ -173,5 +173,46 @@ class BatchCliPaginationTest(unittest.TestCase):
                 self.assertFalse(db_path.exists())
 
 
+class BatchHelpTextTest(unittest.TestCase):
+    """`--help` 只输出帮助，不打开数据库、不创建路径、不写 stderr。"""
+
+    READ_ONLY_SENTENCE = "只读本地批次，不访问网站、不采集、不修改数据。"
+    EXAMPLE = "python run.py --db data/zhixianji.db batches --limit 10 --offset 20"
+
+    def setUp(self) -> None:
+        self._tmp_ctx = temp_workdir()
+        self.tmp = self._tmp_ctx.__enter__()
+        self.missing_parent = self.tmp / "missing" / "nested"
+        self.db_path = self.missing_parent / "x.db"
+
+    def tearDown(self) -> None:
+        self._tmp_ctx.__exit__(None, None, None)
+
+    def _run_help(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return run_cli(["--db", str(self.db_path), *args], self.tmp)
+
+    def _assert_no_side_effects(self) -> None:
+        self.assertFalse(self.missing_parent.exists(), "--help 不能创建数据库父目录")
+        self.assertFalse(self.db_path.exists(), "--help 不能创建数据库文件")
+
+    def test_main_help_describes_batches_as_local_paged(self) -> None:
+        result = self._run_help("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "", "帮助只能写 stdout")
+        for word in ("本地", "批次", "分页"):
+            self.assertIn(word, result.stdout)
+        self._assert_no_side_effects()
+
+    def test_batches_help_shows_read_only_sentence_and_example(self) -> None:
+        result = self._run_help("batches", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "", "帮助只能写 stdout")
+        self.assertIn(self.READ_ONLY_SENTENCE, result.stdout)
+        self.assertIn(self.EXAMPLE, result.stdout)
+        self.assertIn("--limit", result.stdout)
+        self.assertIn("--offset", result.stdout)
+        self._assert_no_side_effects()
+
+
 if __name__ == "__main__":
     unittest.main()
