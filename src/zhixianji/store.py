@@ -177,16 +177,32 @@ class Store:
         row = self.conn.execute("SELECT * FROM batches WHERE batch_id = ?", (batch_id,)).fetchone()
         return dict(row) if row else None
 
-    def list_batches(self) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """
+    def list_batches(self, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        """列出批次；默认返回全部。
+
+        排序固定为 ``created_at DESC, batch_id DESC``，同一秒内创建的批次也有稳定顺序，
+        因此 LIMIT/OFFSET 分页时相邻页不会重复或遗漏。
+
+        ``limit=None`` 表示不限制条数；只给 offset 时用 ``LIMIT -1`` 返回其后的全部记录。
+        """
+        sql = """
             SELECT b.*,
                    (SELECT COUNT(*) FROM list_items l WHERE l.batch_id = b.batch_id) AS list_count,
                    (SELECT COUNT(*) FROM list_items l WHERE l.batch_id = b.batch_id AND l.in_window = 1) AS window_count,
                    (SELECT COUNT(*) FROM details d WHERE d.batch_id = b.batch_id AND d.status = 'ok') AS ok_count
-            FROM batches b ORDER BY b.created_at DESC
-            """
-        ).fetchall()
+            FROM batches b ORDER BY b.created_at DESC, b.batch_id DESC
+        """
+        params: list[Any] = []
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+            if offset:
+                sql += " OFFSET ?"
+                params.append(offset)
+        elif offset:
+            sql += " LIMIT -1 OFFSET ?"
+            params.append(offset)
+        rows = self.conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
     # -------------------------------------------------------------- list items
