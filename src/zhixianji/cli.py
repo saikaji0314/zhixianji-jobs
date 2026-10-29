@@ -28,6 +28,27 @@ def _eprint(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+def _bounded_int(name: str, minimum: int, maximum: int):
+    """构造 argparse 的整数范围校验器。
+
+    在 parse_args 阶段完成校验，非法值由 argparse 写 stderr 并以退出码 2 结束，
+    不会进入命令函数，因此也不会打开或创建数据库。
+    """
+
+    def parse(text: str) -> int:
+        try:
+            value = int(text)
+        except (TypeError, ValueError):
+            raise argparse.ArgumentTypeError(f"{name} 需要整数，收到 {text!r}") from None
+        if not minimum <= value <= maximum:
+            raise argparse.ArgumentTypeError(
+                f"{name} 需在 {minimum}—{maximum} 之间，收到 {value}"
+            )
+        return value
+
+    return parse
+
+
 def _build_window(cfg: Config, as_of: str | None) -> TimeWindow:
     pinned = None
     value = as_of or cfg.window.as_of
@@ -239,10 +260,13 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_batches(args: argparse.Namespace) -> int:
+    limit = getattr(args, "limit", None)
+    offset = getattr(args, "offset", 0) or 0
     with Store(Path(args.db)) as store:
-        batches = store.list_batches()
+        batches = store.list_batches(limit=limit, offset=offset)
     if not batches:
-        print("还没有批次。先运行：python run.py discover --config config/search.local.json")
+        if offset == 0 and limit is None:
+            print("还没有批次。先运行：python run.py discover --config config/search.local.json")
         return 0
     print(f"{'批次':<28} {'创建时间':<26} {'列表':>6} {'窗口内':>7} {'含完整JD':>9}  搜索")
     for batch in batches:
@@ -300,6 +324,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.set_defaults(func=cmd_export)
 
     p_batches = sub.add_parser("batches", help="列出本地批次")
+    p_batches.add_argument(
+        "--limit",
+        type=_bounded_int("--limit", 1, 1000),
+        default=None,
+        help="本页最多显示 N 个批次（1—1000）；默认显示全部",
+    )
+    p_batches.add_argument(
+        "--offset",
+        type=_bounded_int("--offset", 0, 1_000_000),
+        default=0,
+        help="跳过前 M 个批次（0—1000000，默认 0）；只给 offset 时显示其余全部",
+    )
     p_batches.set_defaults(func=cmd_batches)
 
     return parser

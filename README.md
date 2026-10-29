@@ -8,7 +8,7 @@
 ## 当前状态
 
 0.1.0 首版已实现：列表读取与收录时间窗口判定、完整 JD 抓取、SQLite 存储、
-CSV／JSONL／可读 Markdown 导出，以及 82 项离线测试。
+CSV／JSONL／可读 Markdown 导出，以及 104 项离线测试。
 真实站点的采集范围、成功率、覆盖来源与人工抽查结论见 [验证记录](docs/validation.md)。
 
 ## 为什么不需要浏览器
@@ -97,7 +97,21 @@ python run.py run      --config config/search.local.json
 | `details --batch <ID>` | 为窗口内岗位抓取完整 JD；`--limit N` 小批验证，`--retry-failed` 重试失败项 |
 | `run` | 列表 + 详情 + 导出 |
 | `export --batch <ID>` | 从本地数据库重新导出，不再访问站点 |
-| `batches` | 列出本地批次及计数 |
+| `batches` | 列出本地批次及计数；`--limit N` / `--offset M` 分页 |
+
+`batches` 分页只读本地 SQLite，不访问站点：
+
+```powershell
+python run.py batches                      # 全部批次（原有文本表格，含每批次计数与中文 search）
+python run.py batches --limit 20           # 最新 20 个批次
+python run.py batches --limit 20 --offset 20  # 下一页
+python run.py batches --offset 40          # 跳过前 40 个，返回其余全部
+```
+
+`--limit` 只接受 1—1000 的整数，`--offset` 只接受 0—1000000 的整数（默认 0）。
+排序固定为创建时间（`created_at`）降序，同一秒内创建时按 `batch_id` 降序，因此逐页拼接
+与全量列表完全一致，不会重复或遗漏。空页正常退出 0；非法参数在打开或创建数据库之前
+以退出码 2 拒绝，错误只写 stderr。
 
 中断后继续：再跑一次 `details --batch <ID>` 即可，已成功的正文不会重复访问。
 
