@@ -325,7 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_batches = sub.add_parser(
         "batches",
-        help="列出本地批次（分页只读，不访问站点）",
+        help="列出本地批次（分页只读，离线，不访问站点）",
         description="只读本地批次，不访问网站、不采集、不修改数据。",
         epilog=(
             "示例：\n"
