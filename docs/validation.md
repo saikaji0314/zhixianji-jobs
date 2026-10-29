@@ -118,41 +118,6 @@
 这是检查方法的漏洞，不是数据问题；把 JSON-LD 的字符串一并纳入证据集合后为 0 报错。
 记录在此以免下次重复踩坑。
 
-## 2026-10-29：`batches` 列表分页（离线验证）
-
-本次只改动本地 `batches` 列表的分页与参数校验，**没有访问站点、没有采集、没有修改批次或岗位数据**。
-
-### 语义
-
-| 项 | 行为 |
-| --- | --- |
-| `--limit N` | 1—1000 的整数；省略表示不限制条数 |
-| `--offset M` | 0—1000000 的整数，默认 0；只给 offset 时返回其后的全部记录 |
-| 排序 | `created_at DESC, batch_id DESC`；同一秒内创建的批次按 `batch_id` 降序稳定排列 |
-| 分页一致性 | 逐页拼接与不带参数的全量列表完全一致，无重复、无遗漏 |
-| 默认输出 | 不带分页参数时仍为原文本表格，保留列表／窗口内／含完整JD 三列计数与中文（`ensure_ascii=False`）search 对象 |
-| 空页 | offset 超过总数或库中无匹配记录时退出码 0，不打印 Traceback |
-| 非法参数 | 非整数、`--limit` 越界、`--offset` 越界时退出码 2；错误只写 stderr，校验发生在打开／创建数据库之前，不产生 db 文件或父目录 |
-
-### 离线验证结果
-
-在仓库根目录运行：
-
-```powershell
-python -m unittest discover -s tests -t .
-```
-
-结果：**104 项测试全部通过（OK）**，其中 `tests/test_cli_batches.py` 新增的用例覆盖：
-
-- SQL 层 `created_at` 降序、同秒 `batch_id` 降序；
-- `limit + offset`、只给 `offset`、offset 超出总数；
-- 分页结果逐页拼接等于全量顺序，且保留三列计数；
-- 默认表格输出含表头、计数与中文 search，不以 `\u` 转义；
-- 空页退出 0；
-- 六种非法参数均退出 2、stderr 无 Traceback、stdout 为空、数据库文件与父目录均未创建。
-
-本次验证不涉及真实站点，不能用来说明站点接口或采集链路的状态。
-
 ### 4. 产出
 
 `output/20261015-1910-agent/`：
@@ -193,6 +158,50 @@ python run.py details --batch 20261015-1910-agent
 python run.py export  --batch 20261015-1910-agent
 ```
 
+## 2026-10-29：`batches` 列表分页（离线验证）
+
+本次只改动本地 `batches` 列表的分页与参数校验，**没有访问站点、没有采集、没有修改批次或岗位数据**。
+
+### 语义
+
+| 项 | 行为 |
+| --- | --- |
+| `--limit N` | 1—1000 的整数；省略表示不限制条数 |
+| `--offset M` | 0—1000000 的整数，默认 0；只给 offset 时返回其后的全部记录 |
+| 排序 | `created_at DESC, batch_id DESC`；同一秒内创建的批次按 `batch_id` 降序稳定排列 |
+| 分页一致性 | 逐页拼接与不带参数的全量列表完全一致，无重复、无遗漏 |
+| 默认输出 | 不带分页参数时仍为原文本表格，保留列表／窗口内／含完整JD 三列计数与中文（`ensure_ascii=False`）search 对象 |
+| 空页 | offset 超过总数或库中无匹配记录时退出码 0，不打印 Traceback |
+| 非法参数 | 非整数、`--limit` 越界、`--offset` 越界时退出码 2；错误只写 stderr，校验发生在打开／创建数据库之前，不产生 db 文件或父目录 |
+
+用法示例：
+
+```powershell
+python run.py batches --limit 20 --offset 0
+python run.py batches --limit 20 --offset 20
+python run.py batches --offset 40      # 返回第 40 条之后的全部记录
+python run.py batches                  # 等价于不分页，输出全部批次
+```
+
+### 离线验证结果
+
+在仓库根目录运行：
+
+```powershell
+python -m unittest discover -s tests -t .
+```
+
+结果：**104 项测试全部通过（OK）**，其中 `tests/test_cli_batches.py` 新增的用例覆盖：
+
+- SQL 层 `created_at` 降序、同秒 `batch_id` 降序；
+- `limit + offset`、只给 `offset`、offset 超出总数；
+- 分页结果逐页拼接等于全量顺序，且保留三列计数；
+- 默认表格输出含表头、计数与中文 search，不以 `\u` 转义；
+- 空页退出 0；
+- 六种非法参数均退出 2、stderr 无 Traceback、stdout 为空、数据库文件与父目录均未创建。
+
+本次验证不涉及真实站点，不能用来说明站点接口或采集链路的状态。
+
 ## 离线测试
 
 ```powershell
@@ -200,7 +209,7 @@ python -m unittest discover -s tests -t .
 python tools/spot_check.py --batch 20261015-1910-agent
 ```
 
-86 项测试，全部离线、不访问站点，样例数据为虚构内容。
+104 项测试（含新增的批次分页回归），全部离线、不访问站点，样例数据为虚构内容。
 
 覆盖的关键行为：窗口边界（含正好等于下界、早一秒、缺失时间、晚于 `asOf`）、时区解析、
 列表翻页与去重、预算上限提示、列表 `total` 变动提示、详情身份核对不通过时清空正文、
