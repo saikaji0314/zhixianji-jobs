@@ -323,7 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--batch", required=True)
     p_export.set_defaults(func=cmd_export)
 
-    p_batches = sub.add_parser("batches", help="列出本地批次")
+    p_batches = sub.add_parser("batches", help="离线列出本地批次")
     p_batches.add_argument(
         "--limit",
         type=_bounded_int("--limit", 1, 1000),
