@@ -215,3 +215,29 @@ python tools/spot_check.py --batch 20261015-1910-agent
 列表翻页与去重、预算上限提示、列表 `total` 变动提示、详情身份核对不通过时清空正文、
 缺一侧正文记为 `incomplete`、恢复与 `--retry-failed`、CSV 多行字段回读与公式注入防护、
 摘要合并、批次重跑、以及测试环境自身的临时目录约束。
+
+## 2026-10-29：`batches` 帮助补充（离线验证）
+
+本次只补充 CLI 帮助文本、README 与测试，**没有访问站点、没有采集、没有修改批次或岗位数据**，也没有改变分页、查询或输出行为。
+
+### 帮助说明
+
+| 项 | 行为 |
+| --- | --- |
+| 主帮助 `batches` 短说明 | 含“本地”“批次”“分页”，并注明只读、不访问站点 |
+| `batches --help` 说明 | “只读本地批次，不访问网站、不采集、不修改数据。” |
+| 分页示例 | `python run.py --db data/zhixianji.db batches --limit 10 --offset 20` |
+| 既有选项说明 | `--limit`、`--offset` 的取值范围与默认值说明保持不变 |
+| 退出码与输出 | 两种 `--help` 均退出 0，只写 stdout，stderr 为空 |
+
+`--help` 由参数解析阶段直接返回，不会进入命令实现；即使 `--db` 指向不存在的数据库及其父目录，也不会打开或创建它们，不访问网络。
+
+### 验证结果（帮助补充）
+
+在仓库根目录运行：
+
+```powershell
+python -m unittest discover -s tests -t .
+```
+
+`tests/test_cli_batches.py` 新增的 `BatchHelpTextTest` 覆盖主帮助关键词、只读说明与示例、`--limit`／`--offset` 说明、退出码 0、stderr 为空，以及数据库父目录与文件均未创建。测试全部离线，样例数据为虚构内容。

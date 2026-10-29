@@ -113,6 +113,15 @@ python run.py batches --offset 40          # 跳过前 40 个，返回其余全�
 与全量列表完全一致，不会重复或遗漏。空页正常退出 0；非法参数在打开或创建数据库之前
 以退出码 2 拒绝，错误只写 stderr。
 
+`python run.py batches --help` 明确说明：只读本地批次，不访问网站、不采集、不修改数据。
+帮助中的分页示例：
+
+```powershell
+python run.py --db data/zhixianji.db batches --limit 10 --offset 20
+```
+
+`--help` 只输出到 stdout 并退出 0，即使 `--db` 指向的数据库及其父目录不存在，也不会打开或创建它们。
+
 中断后继续：再跑一次 `details --batch <ID>` 即可，已成功的正文不会重复访问。
 
 ## 配置
